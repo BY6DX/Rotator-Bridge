@@ -5,115 +5,91 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <optional>
+#include <chrono>
 
-// TODO: refactor
-struct RotatorCfg {
-  // Act as controller if true, else act as pseudo device object
-  bool asController;
-  std::string tcpHost;
-  int tcpPort;
+/* NETWORK */
+#ifndef WIN32
+#include <arpa/inet.h>          /* htons() */
+#include <netdb.h>              /* gethostbyname() */
+#include <netinet/in.h>         /* struct sockaddr_in */
+#include <sys/socket.h>         /* socket(), connect(), send() */
+#else
+#include <winsock2.h>
+#endif
+
+enum RotatorCmd {
+  CHANGE_AZI,
+  CHANGE_ELE,
+  GET_AZI,
+  GET_ELE
 };
 
-struct RotatorCmd {
-  enum CmdType {
-    CHANGE_AZI,
-    CHANGE_HDG,
-    GET_AZI,
-    GET_HDG
-  } type;
+struct RotatorRequest {
+  RotatorCmd cmd;
   union {
     struct {
       double aziRequested;
     } ChangeAzi;
     struct {
       double hdgRequested;
-    } ChangeHdg;
+    } ChangeEle;
+  } payload;
+};
+
+struct RotatorResponse {
+  union {
+    struct {
+      double azi;
+    } aziResp;
+    struct {
+      double ele;
+    } eleResp;
   } payload;
 };
 
 class RotatorController {
 public:
-  enum ConnectionStatus {
-    DISCONNECTED,
-    CONNECTED
-  };
-
   enum RotatorStatus {
     IDLE,
     ROTATING
   };
 
-  virtual void Start();
-  virtual enum ConnectionStatus GetConnectionStatus() = 0;
+  virtual void Start() = 0;
   virtual void Terminate() = 0;
 
-  virtual void GetAzimuthAsync(std::function<void(double)> callback) = 0;
-  virtual void GetHeadingAsync(std::function<void(double)> callback) = 0;
-  virtual void SetAzimuthAsync(double azi, std::function<void()> onfinish) = 0;
-  virtual void SetHeadingAsync(double hdg, std::function<void()> onfinish) = 0;
+  virtual void Request(RotatorRequest req, std::function<void(RotatorResponse)> callback) = 0;
 
-  // synchronized version
-  virtual inline void GetAzimuth(double &azi) {
-    double aziTemp;
+  // synchronized version; timeout in milliseconds; 0 for unlimited
+  virtual inline std::optional<RotatorResponse> Request(
+    RotatorRequest req,
+    int timeout_msec = 0
+  ) {
+    std::optional<RotatorResponse> respTemp;
     std::mutex cv_m;
     std::condition_variable cv;
     std::unique_lock<std::mutex> lk(cv_m);  // locks the lock
 
-    this->GetAzimuthAsync([&](double aziRes) {
-      aziTemp = aziRes;
+    this->Request(req, [&](RotatorResponse resp) {
+      respTemp = resp;
       cv.notify_all();
     });
 
-    cv.wait(lk);  // atomically unlock and wait; lock when cv is signaled
-    azi = aziTemp;
-  }
-
-  virtual void GetHeading(double &hdg) {
-    double hdgTemp;
-    std::mutex cv_m;
-    std::condition_variable cv;
-    std::unique_lock<std::mutex> lk(cv_m);
-
-    this->GetHeadingAsync([&](double hdgRes) {
-      hdgTemp = hdgRes;
-      cv.notify_all();
-    });
-
-    cv.wait(lk);
-    hdg = hdgTemp;
-  }
-
-  virtual void SetAzimuth(double azi) {
-    std::mutex cv_m;
-    std::condition_variable cv;
-    std::unique_lock<std::mutex> lk(cv_m);
-
-    this->SetAzimuthAsync(azi, [&]() {
-      cv.notify_all();
-    });
-
-    cv.wait(lk);
-  }
-
-  virtual void SetHeading(double hdg) {
-    std::mutex cv_m;
-    std::condition_variable cv;
-    std::unique_lock<std::mutex> lk(cv_m);
-
-    this->SetHeadingAsync(hdg, [&]() {
-      cv.notify_all();
-    });
-
-    cv.wait(lk);
+    // atomically unlock and wait; lock when cv is signaled
+    if (timeout_msec == 0) {
+      cv.wait(lk);
+    } else {
+      cv.wait_for(lk, std::chrono::milliseconds(timeout_msec));  
+    }
+    
+    return respTemp;
   }
 };
 
 class PseudoRotator {
 public:
   virtual void Start() = 0;
-  virtual enum ConnectionStatus GetConnectionStatus() = 0;
   virtual void Terminate() = 0;
 
-  virtual RotatorCmd WaitForCommand() = 0;
-
+  virtual void OnRequest(std::function<RotatorResponse(RotatorRequest)> callback) = 0;
 };

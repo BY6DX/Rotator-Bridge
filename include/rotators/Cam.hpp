@@ -1,16 +1,20 @@
 #pragma once
 
-#include "RotatorBase.hpp"
+#include "RotatorCommon.hpp"
 
-class Cam : RotatorBase {
+class Cam : RotatorController {
+private:
+  int sock;
+
+  double pseudoAzi;
+  double pseudoEle;
+
 public:
   std::string tcpHost;
   int tcpPort;
 
-  virtual void Initialize(RotatorConfig &cfg) override;
-  virtual void GetAzimuth(double &azi) override;
-  virtual void GetHeading(double &hdg) override;
-  virtual void SetAzimuth(double azi) override;
-  virtual void SetHeading(double hdg) override;
-  virtual enum ConnectionStatus GetConnectionStatus() override;
+  void Initialize(std::string tcpHost, int tcpPort);
+
+  virtual void Start() override;
+  virtual void Terminate() override;
 };
