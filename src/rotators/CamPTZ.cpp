@@ -108,6 +108,7 @@ void CamPTZ::threadMain(CamPTZ *self)
     case CHANGE_ELE: {
       double eleDesired = job->first.payload.ChangeEle.eleRequested;
       eleDesired += self->eleOffset;
+      eleDesired = 90 - eleDesired;
 
       int eleInt = std::round(eleDesired * 100);
       char eleCmd[] = {0xFF, 0x00, 0x00, 0x4D, 0x00, 0x00, 0x00};
@@ -176,6 +177,7 @@ void CamPTZ::threadMain(CamPTZ *self)
       eleGot += eleResp[4] * 256.0 + eleResp[5];
       eleGot /= 100;
       eleGot -= self->eleOffset;
+      eleGot = 90 - eleGot;
 
       RotatorResponse resp;
       resp.success = !error;

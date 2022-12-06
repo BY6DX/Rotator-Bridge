@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
   auto sinkTcpPort  = op.add<popl::Implicit<int>>("", "rotator-tcp-port", "TCP port of rotator", 4196);
   auto disablePresetReset = op.add<popl::Switch>("", "disable-preset-reset", "Disable preset reset");
   auto disableGpredictWalkaround = op.add<popl::Switch>("", "disable-workaround-for-gpredict", "Disable Gpredict walkaround");
-  auto sinkAziOffset  = op.add<popl::Implicit<double>>("", "sink-azi-offset", "azi offset of rotator", 0.0);
+  auto sinkAziOffset  = op.add<popl::Implicit<double>>("", "sink-azi-offset", "azi offset of rotator", -9.0);
   auto sinkEleOffset  = op.add<popl::Implicit<double>>("", "sink-ele-offset", "ele offset of rotator", 0.0);
   auto disableSmartSink = op.add<popl::Switch>("", "disable-smart-sink", "Disable smart sink");
 
