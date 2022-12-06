@@ -4,7 +4,7 @@ project(Rotator-Bridge CXX)
 set (CMAKE_CXX_STANDARD 17)
 
 add_executable(RBridge
-  "src/rotators/Cam.cpp"
+  "src/rotators/CamPTZ.cpp"
   "src/rotators/rotctld.cpp"
 
   "src/main.cpp"

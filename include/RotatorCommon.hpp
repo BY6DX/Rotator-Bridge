@@ -7,6 +7,7 @@
 #include <functional>
 #include <optional>
 #include <chrono>
+#include <thread>
 
 /* NETWORK */
 #ifndef WIN32
@@ -14,9 +15,84 @@
 #include <netdb.h>              /* gethostbyname() */
 #include <netinet/in.h>         /* struct sockaddr_in */
 #include <sys/socket.h>         /* socket(), connect(), send() */
+#define CLOSE_SOCKET(X) close(X)
 #else
 #include <winsock2.h>
+#define CLOSE_SOCKET(X) closesocket(X)
 #endif
+
+int send_socket(int sockfd, const char *buf, size_t buflen, int opts) {
+  int ret;
+  int bytes_written = 0;
+  while (bytes_written < buflen) {
+    ret = send(sockfd, buf + bytes_written, buflen - bytes_written, opts);
+    if (ret < 0) {
+      return ret;
+    }
+
+    bytes_written += ret;
+  }
+  return bytes_written;
+}
+
+int recv_socket(int sockfd, char *buf, size_t buflen, int opts) {
+  int ret;
+  int bytes_read = 0;
+  while (bytes_read < buflen) {
+    ret = recv(sockfd, buf + bytes_read, buflen - bytes_read, opts);
+    if (ret < 0) {
+      return ret;
+    }
+
+    bytes_read += ret;
+  }
+  return bytes_read;
+}
+
+// thread safe queue, from https://codetrips.com/2020/07/26/modern-c-writing-a-thread-safe-queue/
+template<typename T>
+class ThreadsafeQueue {
+  std::queue<T> queue_;
+  mutable std::mutex mutex_;
+ 
+  // Moved out of public interface to prevent races between this
+  // and pop().
+  bool empty() const {
+    return queue_.empty();
+  }
+ 
+ public:
+  ThreadsafeQueue() = default;
+  ThreadsafeQueue(const ThreadsafeQueue<T> &) = delete ;
+  ThreadsafeQueue& operator=(const ThreadsafeQueue<T> &) = delete ;
+ 
+  ThreadsafeQueue(ThreadsafeQueue<T>&& other) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_ = std::move(other.queue_);
+  }
+ 
+  virtual ~ThreadsafeQueue() { }
+ 
+  unsigned long size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return queue_.size();
+  }
+ 
+  std::optional<T> pop() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (queue_.empty()) {
+      return {};
+    }
+    T tmp = queue_.front();
+    queue_.pop();
+    return tmp;
+  }
+ 
+  void push(const T &item) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queue_.push(item);
+  }
+};
 
 enum RotatorCmd {
   CHANGE_AZI,
@@ -25,6 +101,8 @@ enum RotatorCmd {
   GET_ELE
 };
 
+// ele = 0 means pointing the antenna to horizon
+// ele = 90 means pointing the antenna to the sky
 struct RotatorRequest {
   RotatorCmd cmd;
   union {
@@ -32,12 +110,13 @@ struct RotatorRequest {
       double aziRequested;
     } ChangeAzi;
     struct {
-      double hdgRequested;
+      double eleRequested;
     } ChangeEle;
   } payload;
 };
 
 struct RotatorResponse {
+  bool success;
   union {
     struct {
       double azi;
