@@ -4,13 +4,14 @@
 
 void CamPTZ::Initialize(
   std::string tcpHost, int tcpPort,
-  double aziOffset, double eleOffset, bool smartSink)
+  double aziOffset, double eleOffset, bool smartSink, bool keepAlive)
 {
   this->tcpHost = tcpHost;
   this->tcpPort = tcpPort;
   this->aziOffset = aziOffset;
   this->eleOffset = eleOffset;
   this->smartSink = smartSink;
+  this->rotatorKeepAlive = keepAlive;
 }
 
 void CamPTZ::connStart()
@@ -43,6 +44,36 @@ void CamPTZ::connStart()
   }
 
   sockConnected = true;
+
+  // keepalive
+  if (rotatorKeepAlive) {
+    printf("CamPTZ Thread: Keep-alive started.\n");
+    keepAliveThread = std::thread([this]() {
+      bool error = false;
+      while (!error) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(this->keepAliveInterval));
+
+        printf("CamPTZ Thread: Requesting keep-alive.\n");
+        RotatorRequest req;
+        req.cmd = CHANGE_AZI;
+        req.payload.ChangeAzi.aziRequested = this->lastAziTargetted;
+        auto ret = this->RequestSync(req);
+        if (!ret.has_value()) {
+          error = true;
+        }
+
+        req.cmd = CHANGE_ELE;
+        req.payload.ChangeEle.eleRequested = this->lastEleTargetted;
+        ret = this->RequestSync(req);
+        if (!ret.has_value()) {
+          error = true;
+        }
+      }
+
+      printf("CamPTZ Thread: Keep-alive exited due to error.\n");
+    });
+
+  }
 }
 
 void CamPTZ::connTerminate()
@@ -344,9 +375,13 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
           nextTh.detach();
         }, false);
       }, false);
-    }
 
-    if (cond1 && cond2 && smartSinkSampling.load()) {
+      suppressPushing = true;
+      // make callback by smartSink
+      RotatorResponse respFake;
+      respFake.success = true;
+      callback(respFake);
+    } else if (cond1 && cond2 && smartSinkSampling.load()) {
       suppressPushing = true;
       // make callback by smartSink
       RotatorResponse respFake;

@@ -17,6 +17,7 @@ int main(int argc, char *argv[]) {
   auto sinkAziOffset  = op.add<popl::Implicit<double>>("", "sink-azi-offset", "azi offset of rotator", -9.0);
   auto sinkEleOffset  = op.add<popl::Implicit<double>>("", "sink-ele-offset", "ele offset of rotator", 0.0);
   auto disableSmartSink = op.add<popl::Switch>("", "disable-smart-sink", "Disable smart sink");
+  auto disableSinkKeepAlive = op.add<popl::Switch>("", "disable-sink-keepalive", "Disable sink keepalive (5sec rotate cmd autoreplay)");
 
   op.parse(argc, argv);
 
@@ -36,7 +37,8 @@ int main(int argc, char *argv[]) {
   auto sink = CamPTZ();
   sink.Initialize(
     sinkTcpHost->value(), sinkTcpPort->value(), sinkAziOffset->value(), sinkEleOffset->value(),
-    !disableSmartSink->value()
+    !disableSmartSink->value(),
+    !disableSinkKeepAlive->value()
   );
 
   source.SetRequestHandler([&](RotatorRequest req) -> RotatorResponse {

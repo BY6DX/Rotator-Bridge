@@ -35,12 +35,16 @@ private:
   const int smartSinkSamplingInterval = 1000; // (ms)
   const double smartSinkAngularVelocityMargin = 5; // deg per sec
   std::chrono::steady_clock::time_point lastPosChange;
-  double lastAziTargetted, lastEleTargetted;
+  double lastAziTargetted = 0.0, lastEleTargetted = 0.0;
   std::atomic<bool> smartSinkSampling;
   double smartSinkLastAzi, smartSinkLastEle;
   double smartSinkThisAzi, smartSinkThisEle;
   std::chrono::steady_clock::time_point smartSinkLastQuery;
   std::atomic<bool> smartSinkTargetChanged; // 
+
+  bool rotatorKeepAlive;
+  const int keepAliveInterval = 5000; // (ms)
+  std::thread keepAliveThread;
 
   void connStart();
   void connTerminate();
@@ -49,7 +53,7 @@ private:
   bool RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)> callback, bool noSmartSink);
 
 public:
-  void Initialize(std::string tcpHost, int tcpPort, double aziOffset, double eleOffset, bool smartSink);
+  void Initialize(std::string tcpHost, int tcpPort, double aziOffset, double eleOffset, bool smartSink, bool keepAlive);
 
   virtual void Start() override;
   virtual void Terminate() override;
