@@ -52,16 +52,23 @@ void CamPTZ::threadMain(CamPTZ *self)
   self->connStart();
 
   if (!self->sockConnected) {
-    fprintf(stderr, "CamPTZ Thread exit: Error connecting to target\n");
+    fprintf(stderr, "CamPTZ Thread: Error connecting to target\n");
+    return;
   }
 
   while (!self->threadClosing) {
     bool error = false;
-    std::unique_lock<std::mutex> lk(self->jobEventMutex);
-    self->jobEvent.wait(lk, [self]
-                        { return (self->jobQueue.size() > 0) || (self->threadClosing); });
+    std::optional<threadJob> job;
 
-    auto job = self->jobQueue.pop();
+    // Wait on job
+    {
+      std::unique_lock<std::mutex> lk(self->jobEventMutex);
+      self->jobEvent.wait(lk, [self]
+                          { return (self->jobQueue.size() > 0) || (self->threadClosing); });
+
+      job = self->jobQueue.pop();
+    }
+
     assert(job.has_value());
 
     switch (job->first.cmd)
@@ -81,7 +88,7 @@ void CamPTZ::threadMain(CamPTZ *self)
       aziCmd[5] = (char)(aziInt % 256);
       aziCmd[6] = (char)(aziCmd[3] + aziCmd[4] + aziCmd[5]);
 
-      int ret = send_socket(self->sock, aziCmd, sizeof(aziCmd), 0);
+      int ret = send_fixed(self->sock, aziCmd, sizeof(aziCmd), 0);
       if (ret == -1) {
         fprintf(stderr, "CamPTZ send error\n");
         error = true;
@@ -97,11 +104,6 @@ void CamPTZ::threadMain(CamPTZ *self)
     case CHANGE_ELE: {
       double eleDesired = job->first.payload.ChangeEle.eleRequested;
       eleDesired += self->eleOffset;
-      if (eleDesired < 0) {
-        eleDesired += 90;
-      } else if (eleDesired >= 90) {
-        eleDesired -= 90;
-      }
 
       int eleInt = std::round(eleDesired * 100);
       char eleCmd[] = {0xFF, 0x00, 0x00, 0x4D, 0x00, 0x00, 0x00};
@@ -109,11 +111,10 @@ void CamPTZ::threadMain(CamPTZ *self)
       eleCmd[5] = (char)(eleInt % 256);
       eleCmd[6] = (char)(eleCmd[3] + eleCmd[4] + eleCmd[5]);
 
-      int ret = send_socket(self->sock, eleCmd, sizeof(eleCmd), 0);
+      int ret = send_fixed(self->sock, eleCmd, sizeof(eleCmd), 0);
       if (ret == -1) {
         fprintf(stderr, "CamPTZ send error\n");
         error = true;
-        break;
       }
 
       // an dummy one as callback
@@ -125,29 +126,100 @@ void CamPTZ::threadMain(CamPTZ *self)
     }
 
     case GET_AZI: {
-      
+      char aziCmd[] = {0xFF, 0x00, 0x00, 0x51, 0x00, 0x00, 0x51};
+      int ret = send_fixed(self->sock, aziCmd, sizeof(aziCmd), 0);
+      if (ret == -1) {
+        fprintf(stderr, "CamPTZ send error\n");
+        error = true;
+      }
+
+      char aziResp[6];
+      int ret = recv_fixed(self->sock, aziResp, sizeof(aziResp), 0);
+      if (ret == -1) {
+        fprintf(stderr, "CamPTZ recv error\n");
+        error = true;
+      }
+
+      double aziGot = 0;
+      aziGot += aziResp[4] * 256.0 + aziResp[5];
+      aziGot -= self->aziOffset;
+
+      RotatorResponse resp;
+      resp.success = !error;
+      resp.payload.aziResp.azi = aziGot;
+      job->second(resp);
+
+      break;
     }
-    case GET_ELE:{
-      
+    
+    case GET_ELE: {
+      char eleCmd[] = {0xFF, 0x00, 0x00, 0x53, 0x00, 0x00, 0x53};
+      int ret = send_fixed(self->sock, eleCmd, sizeof(eleCmd), 0);
+      if (ret == -1) {
+        fprintf(stderr, "CamPTZ send error\n");
+        error = true;
+      }
+
+      char eleResp[6];
+      int ret = recv_fixed(self->sock, eleResp, sizeof(eleResp), 0);
+      if (ret == -1) {
+        fprintf(stderr, "CamPTZ recv error\n");
+        error = true;
+      }
+
+      double eleGot = 0;
+      eleGot += eleResp[4] * 256.0 + eleResp[5];
+      eleGot -= self->eleOffset;
+
+      RotatorResponse resp;
+      resp.success = !error;
+      resp.payload.eleResp.ele = eleGot;
+      job->second(resp);
+
+      break;
     }
+    
+    default:
+      fprintf(stderr, "Unknown command in CamPTZ packet. Ignore.\n");
+    }
+
+    // TODO: retry or cleanup
+    if (error) {
+      fprintf(stderr, "CamPTZ Thread: Sock error encountered, thread exiting\n");
+      return;
     }
   }
 
   // TODO: cleanup, if needed
-
+  self->connTerminate();
   return;
 }
 
 void CamPTZ::Start()
 {
-  worker = std::make_unique<std::thread>(&CamPTZ::threadMain, this);
+  worker = std::thread(CamPTZ::threadMain, this);
+  threadExited = false;
   printf("Cam Initialized.\n");
 }
 
-void CamPTZ::Request(RotatorRequest req, std::function<void(RotatorResponse)> callback)
+bool CamPTZ::Request(RotatorRequest req, std::function<void(RotatorResponse)> callback)
 {
+  if (threadExited || worker.joinable()) {
+    // error
+    fprintf(stderr, "Worker closed, unable to request\n");
+
+    return false;
+  }
 }
 
 void CamPTZ::Terminate()
 {
+  threadClosing = true;
+  std::unique_lock<std::mutex> lk(jobEventMutex);
+  // in rare case this could fail because of TSO?
+  // todo check this
+  jobEvent.notify_all();
+
+  worker.join();
+  threadExited = true;
 }

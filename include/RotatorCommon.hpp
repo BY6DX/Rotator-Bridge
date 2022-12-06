@@ -18,10 +18,12 @@
 #define CLOSE_SOCKET(X) close(X)
 #else
 #include <winsock2.h>
+#include <Ws2ipdef.h>
+#include <WS2tcpip.h>
 #define CLOSE_SOCKET(X) closesocket(X)
 #endif
 
-int send_socket(int sockfd, const char *buf, size_t buflen, int opts) {
+int send_fixed(int sockfd, const char *buf, size_t buflen, int opts) {
   int ret;
   int bytes_written = 0;
   while (bytes_written < buflen) {
@@ -35,7 +37,7 @@ int send_socket(int sockfd, const char *buf, size_t buflen, int opts) {
   return bytes_written;
 }
 
-int recv_socket(int sockfd, char *buf, size_t buflen, int opts) {
+int recv_fixed(int sockfd, char *buf, size_t buflen, int opts) {
   int ret;
   int bytes_read = 0;
   while (bytes_read < buflen) {
@@ -137,7 +139,7 @@ public:
   virtual void Start() = 0;
   virtual void Terminate() = 0;
 
-  virtual void Request(RotatorRequest req, std::function<void(RotatorResponse)> callback) = 0;
+  virtual bool Request(RotatorRequest req, std::function<void(RotatorResponse)> callback) = 0;
 
   // synchronized version; timeout in milliseconds; 0 for unlimited
   virtual inline std::optional<RotatorResponse> Request(
@@ -149,10 +151,15 @@ public:
     std::condition_variable cv;
     std::unique_lock<std::mutex> lk(cv_m);  // locks the lock
 
-    this->Request(req, [&](RotatorResponse resp) {
+    bool ret = this->Request(req, [&](RotatorResponse resp) {
       respTemp = resp;
       cv.notify_all();
     });
+
+    // failed to submit
+    if (!ret) {
+      return respTemp;
+    }
 
     // atomically unlock and wait; lock when cv is signaled
     if (timeout_msec == 0) {
@@ -170,5 +177,5 @@ public:
   virtual void Start() = 0;
   virtual void Terminate() = 0;
 
-  virtual void OnRequest(std::function<RotatorResponse(RotatorRequest)> callback) = 0;
+  virtual bool SetRequestHandler(std::function<RotatorResponse(RotatorRequest)> callback) = 0;
 };
