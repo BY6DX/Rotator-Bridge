@@ -305,7 +305,7 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
 
   // smartSink related
   bool suppressPushing = false;
-  if (!noSmartSink) {
+  if (!noSmartSink && smartSink) {
     bool cond1 = (req.cmd == CHANGE_AZI && req.payload.ChangeAzi.aziRequested == lastAziTargetted) 
               || (req.cmd == CHANGE_ELE && req.payload.ChangeEle.eleRequested == lastEleTargetted);
     std::chrono::duration<double> elapsed_seconds = std::chrono::duration<double>(
@@ -384,7 +384,7 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
       RotatorResponse respFake;
       respFake.success = true;
       callback(respFake);
-    } else if (cond1 && cond2 && smartSinkSampling.load()) {
+    } else if (smartSinkSampling.load()) {
       printf("CamPTZ Thread: In smartSink; Suppressing position change request with a fake callback\n");
       suppressPushing = true;
       // make callback by smartSink
