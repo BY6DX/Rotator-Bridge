@@ -11,6 +11,7 @@ private:
   bool sockActive = false;
   bool threadClosing = false;
   bool threadExited = true;
+  bool gpredictBugWalkaround;
 
   std::thread worker;
   std::vector<std::thread> clientWorkers;
@@ -22,9 +23,10 @@ private:
   static void threadMain(rotctld *self);
 
 public:
-  void Initialize(std::string tcpHost, int tcpPort, double aziOffset, double eleOffset);
+  void Initialize(std::string tcpHost, int tcpPort, bool gpredictBugWalkaround);
 
   virtual void Start() override;
+  virtual void WaitForClose() override;
   virtual void Terminate() override;
   virtual bool SetRequestHandler(std::function<RotatorResponse(RotatorRequest)> callback) override;
 };

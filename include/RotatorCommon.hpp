@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <queue>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -16,14 +17,30 @@
 #include <netinet/in.h>         /* struct sockaddr_in */
 #include <sys/socket.h>         /* socket(), connect(), send() */
 #define CLOSE_SOCKET(X) close(X)
+#define SOCKET_PRINT_ERROR(X) perror(X)
 #else
 #include <winsock2.h>
 #include <Ws2ipdef.h>
 #include <WS2tcpip.h>
 #define CLOSE_SOCKET(X) closesocket(X)
+#define SOCKET_PRINT_ERROR(X) socket_print_error(X)
+
+inline void socket_print_error(const char* X) {
+    do {
+        \
+            wchar_t* s = NULL;               \
+            FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, \
+                NULL, WSAGetLastError(), \
+                MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), \
+                (LPWSTR)&s, 0, NULL); \
+            fprintf(stderr, "%s: %ls\n", X, s); \
+            LocalFree(s); \
+    } while (0);
+}
+
 #endif
 
-int send_fixed(int sockfd, const char *buf, size_t buflen, int opts) {
+inline int send_fixed(int sockfd, const char *buf, size_t buflen, int opts) {
   int ret;
   int bytes_written = 0;
   while (bytes_written < buflen) {
@@ -37,7 +54,7 @@ int send_fixed(int sockfd, const char *buf, size_t buflen, int opts) {
   return bytes_written;
 }
 
-int recv_fixed(int sockfd, char *buf, size_t buflen, int opts) {
+inline int recv_fixed(int sockfd, char *buf, size_t buflen, int opts) {
   int ret;
   int bytes_read = 0;
   while (bytes_read < buflen) {
@@ -142,7 +159,7 @@ public:
   virtual bool Request(RotatorRequest req, std::function<void(RotatorResponse)> callback) = 0;
 
   // synchronized version; timeout in milliseconds; 0 for unlimited
-  virtual inline std::optional<RotatorResponse> Request(
+  inline std::optional<RotatorResponse> RequestSync(
     RotatorRequest req,
     int timeout_msec = 0
   ) {
@@ -176,6 +193,7 @@ class PseudoRotator {
 public:
   virtual void Start() = 0;
   virtual void Terminate() = 0;
+  virtual void WaitForClose() = 0;
 
   virtual bool SetRequestHandler(std::function<RotatorResponse(RotatorRequest)> callback) = 0;
 };

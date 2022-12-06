@@ -16,7 +16,7 @@ void CamPTZ::connStart()
 
   sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock == -1) {
-    fprintf(stderr, "Error creating socket\n");
+    SOCKET_PRINT_ERROR("Error creating socket");
     return;
   }
 
@@ -30,11 +30,11 @@ void CamPTZ::connStart()
   }
 
   memcpy((char *)&hostAddr.sin_addr.s_addr, h->h_addr_list[0], h->h_length);
-  hostAddr.sin_port = tcpPort;
+  hostAddr.sin_port = htons(tcpPort);
 
   status = connect(sock, (struct sockaddr *)&hostAddr, sizeof(hostAddr));
   if (status == -1) {
-    fprintf(stderr, "Error connecting to target\n");
+    SOCKET_PRINT_ERROR("Error connecting to target");
     CLOSE_SOCKET(sock);
     return;
   }
@@ -53,6 +53,7 @@ void CamPTZ::threadMain(CamPTZ *self)
 
   if (!self->sockConnected) {
     fprintf(stderr, "CamPTZ Thread: Error connecting to target\n");
+    self->threadExited = true;
     return;
   }
 
@@ -133,8 +134,8 @@ void CamPTZ::threadMain(CamPTZ *self)
         error = true;
       }
 
-      char aziResp[6];
-      int ret = recv_fixed(self->sock, aziResp, sizeof(aziResp), 0);
+      char aziResp[7];
+      ret = recv_fixed(self->sock, aziResp, sizeof(aziResp), 0);
       if (ret == -1) {
         fprintf(stderr, "CamPTZ recv error\n");
         error = true;
@@ -142,6 +143,7 @@ void CamPTZ::threadMain(CamPTZ *self)
 
       double aziGot = 0;
       aziGot += aziResp[4] * 256.0 + aziResp[5];
+      aziGot /= 100;
       aziGot -= self->aziOffset;
 
       RotatorResponse resp;
@@ -160,8 +162,8 @@ void CamPTZ::threadMain(CamPTZ *self)
         error = true;
       }
 
-      char eleResp[6];
-      int ret = recv_fixed(self->sock, eleResp, sizeof(eleResp), 0);
+      char eleResp[7];
+      ret = recv_fixed(self->sock, eleResp, sizeof(eleResp), 0);
       if (ret == -1) {
         fprintf(stderr, "CamPTZ recv error\n");
         error = true;
@@ -169,11 +171,13 @@ void CamPTZ::threadMain(CamPTZ *self)
 
       double eleGot = 0;
       eleGot += eleResp[4] * 256.0 + eleResp[5];
+      eleGot /= 100;
       eleGot -= self->eleOffset;
 
       RotatorResponse resp;
       resp.success = !error;
       resp.payload.eleResp.ele = eleGot;
+      printf("CamPTZ Thread: GET_ELE Response: ele=%lf\n", eleGot);
       job->second(resp);
 
       break;
@@ -186,12 +190,14 @@ void CamPTZ::threadMain(CamPTZ *self)
     // TODO: retry or cleanup
     if (error) {
       fprintf(stderr, "CamPTZ Thread: Sock error encountered, thread exiting\n");
+      self->threadExited = true;
       return;
     }
   }
 
   // TODO: cleanup, if needed
   self->connTerminate();
+  self->threadExited = true;
   return;
 }
 
@@ -199,17 +205,26 @@ void CamPTZ::Start()
 {
   worker = std::thread(CamPTZ::threadMain, this);
   threadExited = false;
-  printf("Cam Initialized.\n");
+  printf("CamPTZ Initialized.\n");
 }
 
 bool CamPTZ::Request(RotatorRequest req, std::function<void(RotatorResponse)> callback)
 {
-  if (threadExited || worker.joinable()) {
+  if (threadExited) {
     // error
     fprintf(stderr, "Worker closed, unable to request\n");
 
     return false;
   }
+
+  jobQueue.push(std::make_pair(
+    req, callback
+  ));
+
+  std::unique_lock<std::mutex> lk(jobEventMutex);
+  jobEvent.notify_all();
+
+  return true;
 }
 
 void CamPTZ::Terminate()

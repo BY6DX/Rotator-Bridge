@@ -2,7 +2,7 @@
 
 #include "RotatorCommon.hpp"
 
-class CamPTZ : RotatorController {
+class CamPTZ : public RotatorController {
 private:
   // offset configurations
   double aziOffset;  // (-360, 360), wrap

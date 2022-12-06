@@ -1,12 +1,19 @@
 #include "rotators/rotctld.hpp"
 
+void rotctld::Initialize(std::string tcpHost, int tcpPort, bool gpredictBugWalkaround)
+{
+  this->tcpHost = tcpHost;
+  this->tcpPort = tcpPort;
+  this->gpredictBugWalkaround = gpredictBugWalkaround;
+}
+
 void rotctld::connStart()
 {
   int status;
 
   sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock == -1) {
-    fprintf(stderr, "Error creating socket\n");
+    SOCKET_PRINT_ERROR("Error creating socket");
     return;
   }
 
@@ -68,12 +75,13 @@ void rotctld::threadMain(rotctld *self) {
 int recv_until_newline(int sockfd, char *buf, size_t buflen) {
   int bytes_read = 0, ret;
   char byte;
-  while (recv_fixed(sockfd, &byte, 1, 0) > 0 && bytes_read < buflen) {
+  while ((ret = recv_fixed(sockfd, &byte, 1, 0)) > 0 && bytes_read < buflen) {
     if (ret != 1) {
       return ret;
     }
 
     buf[bytes_read] = byte;
+    printf("Got %c\n", byte);
     bytes_read++;
 
     if (byte == '\n') {
@@ -88,8 +96,22 @@ int recv_until_newline(int sockfd, char *buf, size_t buflen) {
 void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in clientAddr) {
   char buf[80];
 
+  printf("rotctld::connThreadMain initialized.\n");
+
   while (!self->threadClosing) {
-    int ret = recv_until_newline(connSock, buf, sizeof(buf));
+    int ret;
+    if (self->gpredictBugWalkaround) {
+      // In Gpredict v2.2.1, there is incorrect handling for Windows rotator protocol that accidentally
+      // got the trailing '\n' removed; See
+      // https://github.com/csete/gpredict/commit/f0d6afce3fc457963de9ae620af517c76deb82a1
+      //
+      // However, this is not a reliable way, since there is no guarantee that a full
+      // command packet can be read by one recv call, and parsing this way is potentially buggy
+      ret = recv(connSock, buf, sizeof(buf), 0);
+    } else {
+      ret = recv_until_newline(connSock, buf, sizeof(buf));
+    }
+    
     if (ret <= 0) {
       fprintf(stderr, "rotctld Thread: failed to read newline.\n");
       CLOSE_SOCKET(connSock);
@@ -97,6 +119,7 @@ void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in cli
     }
 
     if (buf[0] == 'p') {
+      printf("rotctld Thread: Command received: %c\n", buf[0]);
       // Request: Print az and el
       double azi, ele;
 
@@ -120,6 +143,8 @@ void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in cli
 
       char respBuf[80];
       snprintf(respBuf, sizeof(respBuf), "%lf\n%lf\n", azi, ele);
+
+      printf("rotctld Thread: Command response: azi=%lf, ele=%lf\n", azi, ele);
 
       ret = send_fixed(connSock, respBuf, sizeof(respBuf), 0);
       if (ret < 0) {
@@ -153,7 +178,37 @@ void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in cli
         // TODO: check return value
       }
 
-      
-    } 
+      std::string respBuf = "RET 0";
+      ret = send_fixed(connSock, respBuf.c_str(), respBuf.size(), 0);
+      if (ret < 0) {
+        fprintf(stderr, "rotctld Thread: failed to send response.\n");
+        CLOSE_SOCKET(connSock);
+        return;
+      }
+    }
   }
+}
+
+void rotctld::WaitForClose() {
+  worker.join();
+}
+
+void rotctld::Start() {
+  worker = std::thread(rotctld::threadMain, this);
+  threadExited = false;
+  printf("rotctld Initialized.\n");
+}
+
+void rotctld::Terminate() {
+  threadClosing = true;
+
+  worker.join();
+  threadExited = true;
+}
+
+bool rotctld::SetRequestHandler(
+  std::function<RotatorResponse(RotatorRequest)> callback
+) {
+  requestHandler = callback;
+  return true;
 }
