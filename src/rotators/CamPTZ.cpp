@@ -57,14 +57,14 @@ void CamPTZ::connStart()
         RotatorRequest req;
         req.cmd = CHANGE_AZI;
         req.payload.ChangeAzi.aziRequested = this->lastAziTargetted;
-        auto ret = this->RequestSync(req);
+        auto ret = this->RequestSync(req, 1000);
         if (!ret.has_value()) {
           error = true;
         }
 
         req.cmd = CHANGE_ELE;
         req.payload.ChangeEle.eleRequested = this->lastEleTargetted;
-        ret = this->RequestSync(req);
+        ret = this->RequestSync(req, 1000);
         if (!ret.has_value()) {
           error = true;
         }
