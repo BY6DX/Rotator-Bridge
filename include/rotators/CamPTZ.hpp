@@ -25,13 +25,31 @@ private:
   std::mutex jobEventMutex;
   std::condition_variable jobEvent;
 
+  // smartSink: suppress subsequent (but same) pos change for a moving motor
+  // - Condition 1: Requesting for same target movement
+  // - Condition 2: Previous effective request is in 7 seconds
+  // - Condition 3: Motor is moving with >5deg/sec past 1 second
+  //   - Suppress subsequent sampling if already got one
+  bool smartSink;
+  const double changeEffectiveMargin = 7.0;  // (s)
+  const int smartSinkSamplingInterval = 1000; // (ms)
+  const double smartSinkAngularVelocityMargin = 5; // deg per sec
+  std::chrono::steady_clock::time_point lastPosChange;
+  double lastAziTargetted, lastEleTargetted;
+  std::atomic<bool> smartSinkSampling;
+  double smartSinkLastAzi, smartSinkLastEle;
+  double smartSinkThisAzi, smartSinkThisEle;
+  std::chrono::steady_clock::time_point smartSinkLastQuery;
+  std::atomic<bool> smartSinkTargetChanged; // 
+
   void connStart();
   void connTerminate();
-  void connSettingPreset();
   static void threadMain(CamPTZ *self);
 
+  bool RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)> callback, bool noSmartSink);
+
 public:
-  void Initialize(std::string tcpHost, int tcpPort, double aziOffset, double eleOffset);
+  void Initialize(std::string tcpHost, int tcpPort, double aziOffset, double eleOffset, bool smartSink);
 
   virtual void Start() override;
   virtual void Terminate() override;

@@ -16,6 +16,7 @@ int main(int argc, char *argv[]) {
   auto disableGpredictWalkaround = op.add<popl::Switch>("", "disable-workaround-for-gpredict", "Disable Gpredict walkaround");
   auto sinkAziOffset  = op.add<popl::Implicit<double>>("", "sink-azi-offset", "azi offset of rotator", 0.0);
   auto sinkEleOffset  = op.add<popl::Implicit<double>>("", "sink-ele-offset", "ele offset of rotator", 0.0);
+  auto disableSmartSink = op.add<popl::Switch>("", "disable-smart-sink", "Disable smart sink");
 
   op.parse(argc, argv);
 
@@ -33,7 +34,10 @@ int main(int argc, char *argv[]) {
   source.Initialize(srcTcpHost->value(), srcTcpPort->value(), !disableGpredictWalkaround->is_set());
 
   auto sink = CamPTZ();
-  sink.Initialize(sinkTcpHost->value(), sinkTcpPort->value(), sinkAziOffset->value(), sinkEleOffset->value());
+  sink.Initialize(
+    sinkTcpHost->value(), sinkTcpPort->value(), sinkAziOffset->value(), sinkEleOffset->value(),
+    !disableSmartSink->value()
+  );
 
   source.SetRequestHandler([&](RotatorRequest req) -> RotatorResponse {
     // Visualize

@@ -2,12 +2,15 @@
 #include <cstring>
 #include <cassert>
 
-void CamPTZ::Initialize(std::string tcpHost, int tcpPort, double aziOffset, double eleOffset)
+void CamPTZ::Initialize(
+  std::string tcpHost, int tcpPort,
+  double aziOffset, double eleOffset, bool smartSink)
 {
   this->tcpHost = tcpHost;
   this->tcpPort = tcpPort;
   this->aziOffset = aziOffset;
   this->eleOffset = eleOffset;
+  this->smartSink = smartSink;
 }
 
 void CamPTZ::connStart()
@@ -45,12 +48,6 @@ void CamPTZ::connStart()
 void CamPTZ::connTerminate()
 {
   CLOSE_SOCKET(sock);
-}
-
-// Various settings to be set on initialization
-void CamPTZ::connSettingPreset()
-{
-
 }
 
 void CamPTZ::threadMain(CamPTZ *self)
@@ -259,7 +256,11 @@ void CamPTZ::Start()
   printf("CamPTZ Initialized.\n");
 }
 
-bool CamPTZ::Request(RotatorRequest req, std::function<void(RotatorResponse)> callback)
+bool CamPTZ::Request(RotatorRequest req, std::function<void(RotatorResponse)> callback) {
+  return RequestImpl(req, callback, false);
+}
+
+bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)> callback, bool noSmartSink)
 {
   if (threadExited) {
     // error
@@ -268,12 +269,114 @@ bool CamPTZ::Request(RotatorRequest req, std::function<void(RotatorResponse)> ca
     return false;
   }
 
-  jobQueue.push(std::make_pair(
-    req, callback
-  ));
+  // smartSink related
+  bool suppressPushing = false;
+  if (!noSmartSink) {
+    bool cond1 = (req.cmd == CHANGE_AZI && req.payload.ChangeAzi.aziRequested == lastAziTargetted) 
+              || (req.cmd == CHANGE_ELE && req.payload.ChangeEle.eleRequested == lastEleTargetted);
+    std::chrono::duration<double> elapsed_seconds = std::chrono::duration<double>(
+      std::chrono::steady_clock::now() - lastPosChange
+    );
 
-  std::unique_lock<std::mutex> lk(jobEventMutex);
-  jobEvent.notify_all();
+    bool cond2 = elapsed_seconds.count() < changeEffectiveMargin;
+
+    if (cond1 && cond2 && !smartSinkSampling.load()) {
+      // emit sampling
+      smartSinkSampling.store(true);
+      smartSinkTargetChanged.store(false);
+      
+      RotatorRequest reqQueryAzi;
+      reqQueryAzi.cmd = GET_AZI;
+      RequestImpl(reqQueryAzi, [&, req, callback](RotatorResponse resp) {
+        this->smartSinkLastAzi = resp.payload.aziResp.azi;
+        RotatorRequest reqQueryEle;
+        reqQueryEle.cmd = GET_ELE;
+        RequestImpl(reqQueryEle, [&, req, callback](RotatorResponse resp) {
+          this->smartSinkLastQuery = std::chrono::steady_clock::now();
+          this->smartSinkLastEle = resp.payload.eleResp.ele;
+
+          // wait for smartSinkSamplingInterval; a silly version since I don't have event queue
+          // and I don't want to block this working thread
+          auto nextTh = std::thread([&, req, callback]() {
+            std::this_thread::sleep_until(
+              this->smartSinkLastQuery + std::chrono::milliseconds(this->smartSinkSamplingInterval)
+            );
+
+            // sample again
+            RotatorRequest reqQueryAzi;
+            reqQueryAzi.cmd = GET_AZI;
+            RequestImpl(reqQueryAzi, [&, req, callback](RotatorResponse resp) {
+              this->smartSinkThisAzi = resp.payload.aziResp.azi;
+              RotatorRequest reqQueryEle;
+              reqQueryEle.cmd = GET_ELE;
+              RequestImpl(reqQueryEle, [&, req, callback](RotatorResponse resp) {
+                auto timeNow = std::chrono::steady_clock::now();
+                this->smartSinkThisEle = resp.payload.eleResp.ele;
+
+                // test if the delta is sufficient; or we need to replay the request
+                double deltaAzi = min(
+                  360 - std::abs(smartSinkThisAzi - smartSinkLastAzi),
+                  std::abs(smartSinkThisAzi - smartSinkLastAzi)
+                );
+
+                double deltaEle = min(
+                  90 - std::abs(smartSinkThisEle - smartSinkLastEle),
+                  std::abs(smartSinkThisEle - smartSinkLastEle)
+                );
+
+                bool needReplay = deltaEle + deltaAzi < this->smartSinkAngularVelocityMargin;
+                printf(
+                  "CamPTZ Thread: SmartSink got deltaEle=%lf, deltaAzi=%lf, needReplay=%s\n",
+                  deltaEle, deltaAzi, needReplay ? "true" : "false"
+                );
+
+                if (needReplay && !smartSinkTargetChanged.load()) {
+                  // a dummy callback, since callback have been called
+                  RequestImpl(req, [](RotatorResponse) {}, false);
+                }
+
+                this->smartSinkSampling.store(false);
+              }, false);
+            }, false);
+          });
+          nextTh.detach();
+        }, false);
+      }, false);
+    }
+
+    if (cond1 && cond2 && smartSinkSampling.load()) {
+      suppressPushing = true;
+      // make callback by smartSink
+      RotatorResponse respFake;
+      respFake.success = true;
+      callback(respFake);
+    }
+
+    // recording
+    if (req.cmd == CHANGE_AZI) {
+      if (req.payload.ChangeAzi.aziRequested != lastAziTargetted) {
+        this->smartSinkTargetChanged.store(true);
+        lastPosChange = std::chrono::steady_clock::now();
+      }
+      lastAziTargetted = req.payload.ChangeAzi.aziRequested;
+    } else if (req.cmd == CHANGE_ELE) {
+      if (req.payload.ChangeEle.eleRequested != lastEleTargetted) {
+        this->smartSinkTargetChanged.store(true);
+        lastPosChange = std::chrono::steady_clock::now();
+      }
+      lastEleTargetted = req.payload.ChangeEle.eleRequested;
+    }
+  }
+
+  // actual job push code
+  if (!suppressPushing) {
+    jobQueue.push(std::make_pair(
+      req, callback
+    ));
+
+    std::unique_lock<std::mutex> lk(jobEventMutex);
+    jobEvent.notify_all();
+  }
 
   return true;
 }
