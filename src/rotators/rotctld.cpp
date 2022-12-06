@@ -66,7 +66,15 @@ void rotctld::threadMain(rotctld *self) {
 		       inet_ntop(AF_INET, &clientAddr.sin_addr, str, sizeof(str)),
 		       ntohs(clientAddr.sin_port));
 
-    self->clientWorkers.push_back(std::thread(rotctld::connThreadMain, self, connSock, clientAddr));
+    self->clientWorkers.push_back(
+      std::thread(
+        [](rotctld *self, int connSock, struct sockaddr_in clientAddr) {
+          rotctld::connThreadMain(self, connSock, clientAddr);
+          printf("Client exited.\n");
+        },
+        self, connSock, clientAddr
+      )
+    );
   }
   
 }
@@ -119,7 +127,7 @@ void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in cli
     }
 
     if (buf[0] == 'p') {
-      printf("rotctld Thread: Command received: %c\n", buf[0]);
+      // printf("rotctld Thread: Command received: %c\n", buf[0]);
       // Request: Print az and el
       double azi, ele;
 
@@ -144,7 +152,7 @@ void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in cli
       char respBuf[80];
       snprintf(respBuf, sizeof(respBuf), "%lf\n%lf\n", azi, ele);
 
-      printf("rotctld Thread: Command response: azi=%lf, ele=%lf\n", azi, ele);
+      // printf("rotctld Thread: Command response: azi=%lf, ele=%lf\n", azi, ele);
 
       ret = send_fixed(connSock, respBuf, sizeof(respBuf), 0);
       if (ret < 0) {
@@ -185,6 +193,18 @@ void rotctld::connThreadMain(rotctld *self, int connSock, struct sockaddr_in cli
         CLOSE_SOCKET(connSock);
         return;
       }
+    } else if (buf[0] == 'S') {
+      // stop
+      std::string respBuf = "RET 0";
+      ret = send_fixed(connSock, respBuf.c_str(), respBuf.size(), 0);
+      if (ret < 0) {
+        fprintf(stderr, "rotctld Thread: failed to send response.\n");
+        CLOSE_SOCKET(connSock);
+        return;
+      }
+
+      CLOSE_SOCKET(connSock);
+      return;
     }
   }
 }

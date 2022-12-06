@@ -18,6 +18,8 @@
 #include <sys/socket.h>         /* socket(), connect(), send() */
 #define CLOSE_SOCKET(X) close(X)
 #define SOCKET_PRINT_ERROR(X) perror(X)
+#define SOCKET_INIT() InitWinSock2()
+#define SOCKET_EXIT() CloseWinSock2
 #else
 #include <winsock2.h>
 #include <Ws2ipdef.h>
@@ -25,6 +27,7 @@
 #define CLOSE_SOCKET(X) closesocket(X)
 #define SOCKET_PRINT_ERROR(X) socket_print_error(X)
 
+// TODO: fix print; currently only useful when putting breakpoint inside
 inline void socket_print_error(const char* X) {
     do {
         \
@@ -38,6 +41,45 @@ inline void socket_print_error(const char* X) {
     } while (0);
 }
 
+#define SOCKET_INIT() InitWinSock2()
+#define SOCKET_EXIT() CloseWinSock2()
+
+/* This code was given from MSDN */
+inline void InitWinSock2(void)
+{
+    WORD            wVersionRequested;
+    WSADATA         wsaData;
+    int             err;
+
+    wVersionRequested = MAKEWORD(2, 2);
+
+    err = WSAStartup(wVersionRequested, &wsaData);
+    if (err != 0)
+    {
+        /* Tell the user that we could not find a usable */
+        /* WinSock DLL.                                  */
+        return;
+    }
+
+    /* Confirm that the WinSock DLL supports 2.2. */
+    /* Note that if the DLL supports versions later    */
+    /* than 2.2 in addition to 2.2, it will still return */
+    /* 2.2 in wVersion since that is the version we      */
+    /* requested.                                        */
+
+    if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
+    {
+        /* Tell the user that we could not find a usable */
+        /* WinSock DLL.                                  */
+        WSACleanup();
+        return;
+    }
+}
+
+inline void CloseWinSock2(void)
+{
+    WSACleanup();
+}
 #endif
 
 inline int send_fixed(int sockfd, const char *buf, size_t buflen, int opts) {
@@ -117,7 +159,10 @@ enum RotatorCmd {
   CHANGE_AZI,
   CHANGE_ELE,
   GET_AZI,
-  GET_ELE
+  GET_ELE,
+  CAMPTZ_PRESET_CALL,
+  CAMPTZ_PRESET_SET,
+  CAMPTZ_PRESET_CLEAR
 };
 
 // ele = 0 means pointing the antenna to horizon
@@ -131,6 +176,9 @@ struct RotatorRequest {
     struct {
       double eleRequested;
     } ChangeEle;
+    struct {
+      char presetIdx;
+    } CamPTZPreset;
   } payload;
 };
 

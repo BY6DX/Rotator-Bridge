@@ -47,6 +47,12 @@ void CamPTZ::connTerminate()
   CLOSE_SOCKET(sock);
 }
 
+// Various settings to be set on initialization
+void CamPTZ::connSettingPreset()
+{
+
+}
+
 void CamPTZ::threadMain(CamPTZ *self)
 {
   self->connStart();
@@ -177,12 +183,57 @@ void CamPTZ::threadMain(CamPTZ *self)
       RotatorResponse resp;
       resp.success = !error;
       resp.payload.eleResp.ele = eleGot;
-      printf("CamPTZ Thread: GET_ELE Response: ele=%lf\n", eleGot);
+      // printf("CamPTZ Thread: GET_ELE Response: ele=%lf\n", eleGot);
       job->second(resp);
 
       break;
     }
     
+    case CAMPTZ_PRESET_CALL:
+    case CAMPTZ_PRESET_SET:
+    case CAMPTZ_PRESET_CLEAR: {
+      auto setPreset = [&](int presetIdx) {
+        char cmd[] = {0xFF, 0x00, 0x00, 0x03, 0x00, presetIdx, 0x03 + presetIdx};
+        int ret = send_fixed(self->sock, cmd, sizeof(cmd), 0);
+        if (ret == -1) {
+          fprintf(stderr, "CamPTZ send error\n");
+          error = true;
+        }
+      };
+
+      auto clearPreset = [&](int presetIdx) {
+        char cmd[] = {0xFF, 0x00, 0x00, 0x05, 0x00, presetIdx, 0x05 + presetIdx};
+        int ret = send_fixed(self->sock, cmd, sizeof(cmd), 0);
+        if (ret == -1) {
+          fprintf(stderr, "CamPTZ send error\n");
+          error = true;
+        }
+      };
+
+      auto callPreset = [&](int presetIdx) {
+        char cmd[] = {0xFF, 0x00, 0x00, 0x07, 0x00, presetIdx, 0x07 + presetIdx};
+        int ret = send_fixed(self->sock, cmd, sizeof(cmd), 0);
+        if (ret == -1) {
+          fprintf(stderr, "CamPTZ send error\n");
+          error = true;
+        }
+      };
+
+      if (job->first.cmd == CAMPTZ_PRESET_CALL) {
+        callPreset(job->first.payload.CamPTZPreset.presetIdx);
+      } else if (job->first.cmd == CAMPTZ_PRESET_SET) {
+        setPreset(job->first.payload.CamPTZPreset.presetIdx);
+      } else if (job->first.cmd == CAMPTZ_PRESET_CLEAR) {
+        clearPreset(job->first.payload.CamPTZPreset.presetIdx);
+      }
+
+      RotatorResponse resp;
+      resp.success = !error;
+      job->second(resp);
+
+      break;
+    }
+
     default:
       fprintf(stderr, "Unknown command in CamPTZ packet. Ignore.\n");
     }

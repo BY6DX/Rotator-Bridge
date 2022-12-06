@@ -27,6 +27,7 @@ private:
 
   void connStart();
   void connTerminate();
+  void connSettingPreset();
   static void threadMain(CamPTZ *self);
 
 public:

@@ -6,7 +6,7 @@ set (CMAKE_CXX_STANDARD 17)
 add_executable(RBridge
   "src/rotators/CamPTZ.cpp"
   "src/rotators/rotctld.cpp"
-  "src/main.cpp"
+  "src/cliMain.cpp"
 )
 
 target_include_directories(RBridge PRIVATE ${CMAKE_SOURCE_DIR}/include)
