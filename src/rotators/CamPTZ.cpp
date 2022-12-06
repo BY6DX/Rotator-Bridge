@@ -47,6 +47,7 @@ void CamPTZ::connStart()
 
   // keepalive
   if (rotatorKeepAlive) {
+    lastPosChange = std::chrono::steady_clock::now();
     printf("CamPTZ Thread: Keep-alive started.\n");
     keepAliveThread = std::thread([this]() {
       bool error = false;
@@ -313,6 +314,8 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
 
     bool cond2 = elapsed_seconds.count() < changeEffectiveMargin;
 
+    printf("CamPTZ Thread: SmartSink decision: cond1=%d, cond2=%d\n", cond1, cond2);
+
     if (cond1 && cond2 && !smartSinkSampling.load()) {
       // emit sampling
       smartSinkSampling.store(true);
@@ -382,6 +385,7 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
       respFake.success = true;
       callback(respFake);
     } else if (cond1 && cond2 && smartSinkSampling.load()) {
+      printf("CamPTZ Thread: In smartSink; Suppressing position change request with a fake callback\n");
       suppressPushing = true;
       // make callback by smartSink
       RotatorResponse respFake;
