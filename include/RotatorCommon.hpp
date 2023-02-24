@@ -3,6 +3,7 @@
 #include <string>
 #include <queue>
 #include <thread>
+#include <atomic>
 #include <mutex>
 #include <condition_variable>
 #include <functional>
@@ -16,10 +17,11 @@
 #include <netdb.h>              /* gethostbyname() */
 #include <netinet/in.h>         /* struct sockaddr_in */
 #include <sys/socket.h>         /* socket(), connect(), send() */
+#include <unistd.h>             /* close() */
 #define CLOSE_SOCKET(X) close(X)
 #define SOCKET_PRINT_ERROR(X) perror(X)
-#define SOCKET_INIT() InitWinSock2()
-#define SOCKET_EXIT() CloseWinSock2
+#define SOCKET_INIT() /* no-op */
+#define SOCKET_EXIT() /* no-op */
 #else
 #include <winsock2.h>
 #include <Ws2ipdef.h>

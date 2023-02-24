@@ -52,7 +52,8 @@ void rotctld::threadMain(rotctld *self) {
 
   while (true) {
     struct sockaddr_in clientAddr;
-    int connSock, clientAddrLen = sizeof(clientAddr), n;
+    int connSock, n;
+    unsigned int clientAddrLen = sizeof(clientAddr);
     connSock = accept(self->sock, (struct sockaddr *)&clientAddr, &clientAddrLen);
 
     if (connSock < 0) {

@@ -1,6 +1,7 @@
 #include "rotators/CamPTZ.hpp"
 #include <cstring>
 #include <cassert>
+#include <cmath>
 
 void CamPTZ::Initialize(
   std::string tcpHost, int tcpPort,
@@ -119,7 +120,7 @@ void CamPTZ::threadMain(CamPTZ *self)
       }
 
       int aziInt = std::round(aziDesired * 100);
-      char aziCmd[] = {0xFF, 0x00, 0x00, 0x4B, 0x00, 0x00, 0x00};
+      char aziCmd[] = {'\xFF', '\x00', '\x00', '\x4B', '\x00', '\x00', '\x00'};
       aziCmd[4] = (char)(aziInt / 256);
       aziCmd[5] = (char)(aziInt % 256);
       aziCmd[6] = (char)(aziCmd[3] + aziCmd[4] + aziCmd[5]);
@@ -143,7 +144,7 @@ void CamPTZ::threadMain(CamPTZ *self)
       eleDesired = 90 - eleDesired;
 
       int eleInt = std::round(eleDesired * 100);
-      char eleCmd[] = {0xFF, 0x00, 0x00, 0x4D, 0x00, 0x00, 0x00};
+      char eleCmd[] = {'\xFF', '\x00', '\x00', '\x4D', '\x00', '\x00', '\x00'};
       eleCmd[4] = (char)(eleInt / 256);
       eleCmd[5] = (char)(eleInt % 256);
       eleCmd[6] = (char)(eleCmd[3] + eleCmd[4] + eleCmd[5]);
@@ -163,7 +164,7 @@ void CamPTZ::threadMain(CamPTZ *self)
     }
 
     case GET_AZI: {
-      char aziCmd[] = {0xFF, 0x00, 0x00, 0x51, 0x00, 0x00, 0x51};
+      char aziCmd[] = {'\xFF', '\x00', '\x00', '\x51', '\x00', '\x00', '\x51'};
       int ret = send_fixed(self->sock, aziCmd, sizeof(aziCmd), 0);
       if (ret == -1) {
         fprintf(stderr, "CamPTZ send error\n");
@@ -191,7 +192,7 @@ void CamPTZ::threadMain(CamPTZ *self)
     }
     
     case GET_ELE: {
-      char eleCmd[] = {0xFF, 0x00, 0x00, 0x53, 0x00, 0x00, 0x53};
+      char eleCmd[] = {'\xFF', '\x00', '\x00', '\x53', '\x00', '\x00', '\x53'};
       int ret = send_fixed(self->sock, eleCmd, sizeof(eleCmd), 0);
       if (ret == -1) {
         fprintf(stderr, "CamPTZ send error\n");
@@ -224,7 +225,7 @@ void CamPTZ::threadMain(CamPTZ *self)
     case CAMPTZ_PRESET_SET:
     case CAMPTZ_PRESET_CLEAR: {
       auto setPreset = [&](int presetIdx) {
-        char cmd[] = {0xFF, 0x00, 0x00, 0x03, 0x00, presetIdx, 0x03 + presetIdx};
+        char cmd[] = {'\xFF', '\x00', '\x00', '\x03', '\x00', presetIdx, '\x03' + presetIdx};
         int ret = send_fixed(self->sock, cmd, sizeof(cmd), 0);
         if (ret == -1) {
           fprintf(stderr, "CamPTZ send error\n");
@@ -233,7 +234,7 @@ void CamPTZ::threadMain(CamPTZ *self)
       };
 
       auto clearPreset = [&](int presetIdx) {
-        char cmd[] = {0xFF, 0x00, 0x00, 0x05, 0x00, presetIdx, 0x05 + presetIdx};
+        char cmd[] = {'\xFF', '\x00', '\x00', '\x05', '\x00', presetIdx, '\x05' + presetIdx};
         int ret = send_fixed(self->sock, cmd, sizeof(cmd), 0);
         if (ret == -1) {
           fprintf(stderr, "CamPTZ send error\n");
@@ -242,7 +243,7 @@ void CamPTZ::threadMain(CamPTZ *self)
       };
 
       auto callPreset = [&](int presetIdx) {
-        char cmd[] = {0xFF, 0x00, 0x00, 0x07, 0x00, presetIdx, 0x07 + presetIdx};
+        char cmd[] = {'\xFF', '\x00', '\x00', '\x07', '\x00', presetIdx, '\x07' + presetIdx};
         int ret = send_fixed(self->sock, cmd, sizeof(cmd), 0);
         if (ret == -1) {
           fprintf(stderr, "CamPTZ send error\n");
@@ -350,12 +351,12 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
                 this->smartSinkThisEle = resp.payload.eleResp.ele;
 
                 // test if the delta is sufficient; or we need to replay the request
-                double deltaAzi = min(
+                double deltaAzi = std::min(
                   360 - std::abs(smartSinkThisAzi - smartSinkLastAzi),
                   std::abs(smartSinkThisAzi - smartSinkLastAzi)
                 );
 
-                double deltaEle = min(
+                double deltaEle = std::min(
                   90 - std::abs(smartSinkThisEle - smartSinkLastEle),
                   std::abs(smartSinkThisEle - smartSinkLastEle)
                 );
