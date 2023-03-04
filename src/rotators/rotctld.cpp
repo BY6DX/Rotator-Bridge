@@ -54,7 +54,11 @@ void rotctld::threadMain(rotctld *self) {
     struct sockaddr_in clientAddr;
     int connSock, n;
     unsigned int clientAddrLen = sizeof(clientAddr);
+#ifdef WIN32
+    connSock = accept(self->sock, (struct sockaddr *)&clientAddr, (int *)&clientAddrLen);
+#else
     connSock = accept(self->sock, (struct sockaddr *)&clientAddr, &clientAddrLen);
+#endif
 
     if (connSock < 0) {
       fprintf(stderr, "rotctld Thread: error accepting\n");

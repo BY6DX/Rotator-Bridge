@@ -351,12 +351,13 @@ bool CamPTZ::RequestImpl(RotatorRequest req, std::function<void(RotatorResponse)
                 this->smartSinkThisEle = resp.payload.eleResp.ele;
 
                 // test if the delta is sufficient; or we need to replay the request
-                double deltaAzi = std::min(
+                // (std::min) to walkaround this: https://stackoverflow.com/questions/13416418/define-nominmax-using-stdmin-max
+                double deltaAzi = (std::min)(
                   360 - std::abs(smartSinkThisAzi - smartSinkLastAzi),
                   std::abs(smartSinkThisAzi - smartSinkLastAzi)
                 );
 
-                double deltaEle = std::min(
+                double deltaEle = (std::min)(
                   90 - std::abs(smartSinkThisEle - smartSinkLastEle),
                   std::abs(smartSinkThisEle - smartSinkLastEle)
                 );
